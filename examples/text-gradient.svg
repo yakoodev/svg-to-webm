@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240" viewBox="0 0 800 240">
+  <defs>
+    <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7c3aed">
+        <animate attributeName="stop-color" values="#7c3aed;#06b6d4;#22c55e;#f59e0b;#7c3aed" dur="5s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%" stop-color="#06b6d4">
+        <animate attributeName="stop-color" values="#06b6d4;#22c55e;#f59e0b;#ef4444;#06b6d4" dur="5s" repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+  </defs>
+
+  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="58"
+        font-weight="800"
+        fill="url(#textGradient)">
+    Тестовый SVG
+    <animate attributeName="font-size" values="54;64;54" dur="2.4s" repeatCount="indefinite"/>
+    <animateTransform attributeName="transform" type="translate"
+                      values="0 0; 0 -10; 0 0"
+                      dur="2.4s" repeatCount="indefinite"/>
+  </text>
+</svg>

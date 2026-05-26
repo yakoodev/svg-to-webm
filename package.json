@@ -1,0 +1,14 @@
+{
+  "name": "svg-webm-pages",
+  "version": "5.0.0",
+  "private": true,
+  "description": "Paste animated SVG, preview it in browser, export WebM locally with transparent alpha.",
+  "scripts": {
+    "start": "python -m http.server 5173",
+    "export:svg": "node export-node/export-svg.js",
+    "export:example": "node export-node/export-svg.js examples/text-gradient-with-bg.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10"
+  },
+  "dependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}

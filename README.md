@@ -4,7 +4,7 @@
 
 ## Что внутри
 
-- `index.html` — страница для GitHub Pages: вставка SVG, живое превью с авторазмером, быстрый браузерный WebM и превью результата.
+- `index.html` — страница для GitHub Pages: вставка SVG, живое превью с авторазмером, быстрый браузерный WebM, поддержка SMIL и CSS keyframes через live snapshot, авто-длительность, превью результата.
 - `export-node/export-svg.js` — качественный локальный экспорт через Puppeteer + ffmpeg.
 - `examples/` — SVG/HTML примеры.
 
@@ -36,7 +36,7 @@ Settings → Pages → Deploy from a branch → main → /root
 
 ## Быстрый браузерный экспорт
 
-Кнопка **Быстрый экспорт WebM** работает прямо в браузере через `canvas.captureStream()` + `MediaRecorder`.
+Кнопка **Быстрый экспорт WebM** работает прямо в браузере через `canvas.captureStream()` + `MediaRecorder`. Начиная с v7, сервис автоматически определяет длительность из SMIL/CSS и пишет браузерный WebM в реальном времени. Перед каждым кадром он держит SVG в скрытом live-iframe, выставляет нужное время SMIL/CSS-анимаций и делает snapshot текущих computed styles. В v6 тяжёлые SVG могли давать замедленный WebM, потому что кадры рендерились последовательно. В v7, если браузер не успевает, кадры пропускаются, но итоговая скорость видео остаётся правильной. Поэтому SVG с `@keyframes`, `animation`, `<animate>` и `<animateTransform>` теперь рендерятся заметно надёжнее.
 
 Плюсы:
 
@@ -48,7 +48,7 @@ Settings → Pages → Deploy from a branch → main → /root
 
 - alpha-канал зависит от браузера;
 - качество краёв хуже, чем у ffmpeg;
-- сложные CSS-анимации лучше экспортировать локально.
+- очень сложные CSS/SVG-фильтры могут пропускать кадры в браузере, если компьютер не успевает; для финала лучше локальный Puppeteer + ffmpeg;
 
 Для более ровных границ в браузере поставь **Масштаб записи = 2** или **3**. WebM получится больше размером, но при отображении меньшим CSS-размером края будут чище.
 
@@ -75,7 +75,7 @@ npm run export:example
 Экспорт своего SVG:
 
 ```bash
-npm run export:svg -- my.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10
+npm run export:svg -- my.svg output.webm --fps=60 --strip-bg --scale=2 --crf=10
 ```
 
 После экспорта рядом появится:
@@ -86,34 +86,40 @@ output.preview.html
 
 Открой его в браузере — там можно проверить прозрачность WebM на шахматке, чёрном и белом фоне.
 
-## Почему лучше `--duration=5`, а не `--duration 5`
+## Авто-длительность
 
-Оба варианта поддерживаются, но `--duration=5` надёжнее в разных терминалах и версиях npm, особенно на Windows/PowerShell.
+В веб-версии включена галка **Авто-длительность из SVG/CSS**. Она смотрит `<animate dur="...">`, `<animateTransform dur="...">`, `animation: ... 12s ...` и `animation-duration: ...`, а затем берёт доминирующую длительность. Это специально сделано для SVG, где основной сценарий 12s, но есть мелкие jitter-анимации и длинные фоновые градиенты.
+
+В локальном экспортёре `--duration` можно вообще не указывать — длительность тоже определяется автоматически. Если надо вручную, используй формат с `=`:
+
+```bash
+npm run export:svg -- my.svg output.webm --duration=12 --fps=60 --strip-bg --scale=2 --crf=10
+```
 
 ## Качество краёв
 
 Transparent WebM почти всегда упирается в ограничения VP9/WebM alpha. Что помогает:
 
 ```bash
-npm run export:svg -- my.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10
+npm run export:svg -- my.svg output.webm --fps=60 --strip-bg --scale=2 --crf=10
 ```
 
 Ещё лучше:
 
 ```bash
-npm run export:svg -- my.svg output.webm --duration=5 --fps=60 --strip-bg --scale=3 --crf=8
+npm run export:svg -- my.svg output.webm --fps=60 --strip-bg --scale=3 --crf=8
 ```
 
 Максимально чисто, но большие файлы:
 
 ```bash
-npm run export:svg -- my.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --lossless
+npm run export:svg -- my.svg output.webm --fps=60 --strip-bg --scale=2 --lossless
 ```
 
 Если нужен WebM именно 800×240, но с более аккуратным ресемплингом:
 
 ```bash
-npm run export:svg -- my.svg output.webm --duration=5 --fps=60 --strip-bg --scale=3 --downscale --crf=8
+npm run export:svg -- my.svg output.webm --fps=60 --strip-bg --scale=3 --downscale --crf=8
 ```
 
 На практике самый чистый вариант — экспортировать 2× или 3× и показывать видео меньшим CSS-размером:
@@ -134,4 +140,4 @@ npm run export:svg -- my.svg output.webm --duration=5 --fps=60 --strip-bg --scal
 
 ## Формат SVG
 
-Лучше всего работает один корневой `<svg>...</svg>` без внешних ссылок. Inline SMIL-анимации вроде `<animate>` и `<animateTransform>` поддерживаются локальным экспортом через браузерный рендеринг.
+Лучше всего работает один корневой `<svg>...</svg>` без внешних ссылок. Поддерживаются inline SMIL-анимации вроде `<animate>`/`<animateTransform>` и CSS-анимации через `<style>@keyframes...</style>`. В примерах есть `examples/yakoo_pnv_animated_banner_smooth_intro.svg` — тяжёлый CSS/SMIL SVG для проверки.

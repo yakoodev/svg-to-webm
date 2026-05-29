@@ -11,9 +11,9 @@
   <main class="app">
     <header class="hero">
       <div>
-        <p class="eyebrow">SVG / SMIL / transparent WebM</p>
+        <p class="eyebrow">SVG / SMIL / CSS / transparent WebM</p>
         <h1>SVG → WebM</h1>
-        <p class="lead">Вставь код SVG, посмотри живое превью с авторазмером, экспортируй WebM и проверь прозрачность на шахматке. Для максимального качества используй локальный экспорт через Puppeteer + ffmpeg.</p>
+        <p class="lead">Вставь код SVG, посмотри живое превью с авторазмером, экспортируй WebM и проверь прозрачность на шахматке. CSS keyframes фиксируются по времени, а WebM пишется в реальном времени без замедления. Для максимального качества используй локальный экспорт через Puppeteer + ffmpeg.</p>
       </div>
       <div class="status-pill" id="supportStatus">Проверка браузера…</div>
     </header>
@@ -50,6 +50,10 @@
           <span>Длительность, сек</span>
           <input id="durationInput" type="number" min="0.1" step="0.1" value="5" />
         </label>
+        <label class="check">
+          <input id="autoDurationInput" type="checkbox" checked />
+          <span>Авто-длительность из SVG/CSS</span>
+        </label>
         <label>
           <span>Масштаб записи</span>
           <input id="recordScaleInput" type="number" min="1" max="4" step="1" value="2" />
@@ -66,7 +70,7 @@
           <input id="stripBgInput" type="checkbox" checked />
           <span>Удалять первый прямоугольник-фон из SVG</span>
         </label>
-        <p class="hint">Превью автоматически берёт размер из width/height или viewBox. Для качества лучше экспортировать в 2× или 3× и уменьшать размер видео через CSS. Если нужен настоящий production-файл с alpha, используй <code>npm run export:svg</code>.</p>
+        <p class="hint">Превью автоматически берёт размер из width/height или viewBox. Для качества лучше экспортировать в 2× или 3× и уменьшать размер видео через CSS. В v7 браузерный экспорт пишет видео в реальном времени: если SVG тяжёлый, кадры могут пропускаться, но скорость WebM остаётся правильной. Если нужен настоящий production-файл с alpha и максимально чистые края, используй <code>npm run export:svg</code>.</p>
       </aside>
     </section>
 
@@ -80,7 +84,7 @@
         </div>
       </div>
       <div class="preview-shell checker" id="previewShell">
-        <iframe id="previewFrame" title="SVG preview" sandbox="allow-scripts allow-same-origin"></iframe>
+        <iframe id="previewFrame" title="SVG preview" sandbox="allow-same-origin"></iframe>
       </div>
       <progress id="progressBar" max="1" value="0" class="hidden"></progress>
       <pre id="log" class="log"></pre>
@@ -104,7 +108,7 @@
 
     <section class="note">
       <strong>Команда для качественного локального экспорта:</strong>
-      <code>npm run export:svg -- examples/text-gradient-with-bg.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10</code>
+      <code>npm run export:svg -- examples/yakoo_pnv_animated_banner_smooth_intro.svg output.webm --fps=60 --strip-bg --scale=2 --crf=10</code>
       <br />
       После экспорта рядом создаётся <code>output.preview.html</code> — открой его, чтобы проверить прозрачность WebM на шахматке/чёрном/белом фоне.
     </section>

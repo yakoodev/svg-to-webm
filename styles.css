@@ -20,7 +20,7 @@ body {
 }
 
 .app {
-  width: min(1320px, calc(100vw - 32px));
+  width: min(1500px, calc(100vw - 32px));
   margin: 0 auto;
   padding: 32px 0 48px;
 }

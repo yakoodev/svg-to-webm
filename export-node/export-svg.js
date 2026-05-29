@@ -9,10 +9,10 @@ function usage() {
 
 Usage:
   node export-node/export-svg.js input.svg output.webm [options]
-  npm run export:svg -- input.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10
+  npm run export:svg -- input.svg output.webm --fps=60 --strip-bg --scale=2 --crf=10
 
 Options:
-  --duration=5        Duration in seconds
+  --duration=auto     Duration in seconds. Omit or use auto to detect from SMIL/CSS
   --fps=60            Frames per second
   --width=800         Override base width
   --height=240        Override base height
@@ -26,7 +26,7 @@ Options:
 
 Examples:
   npm run export:example
-  npm run export:svg -- examples/text-gradient-with-bg.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10
+  npm run export:svg -- examples/text-gradient-with-bg.svg output.webm --fps=60 --strip-bg --scale=2 --crf=10
   node export-node/export-svg.js my.svg my.webm --duration=3 --fps=60 --scale=3 --strip-bg --lossless
 `);
 }
@@ -41,7 +41,7 @@ function parseArgs(argv) {
   if (tokens.includes('--help') || tokens.includes('-h')) return { help: true };
 
   const opts = {
-    duration: 5,
+    duration: null,
     fps: 60,
     width: null,
     height: null,
@@ -79,6 +79,10 @@ function parseArgs(argv) {
         i++;
       }
       if (value === undefined || value.startsWith('--')) throw new Error(`${key} needs a value`);
+      if (key === '--duration' && String(value).toLowerCase() === 'auto') {
+        opts.duration = null;
+        continue;
+      }
       const num = Number(value);
       if (!Number.isFinite(num)) throw new Error(`${key} must be a number`);
       if (key === '--duration') opts.duration = num;
@@ -104,10 +108,10 @@ function parseArgs(argv) {
 
   const [input, output] = positional;
   if (!input || !output) return { help: true };
-  if (!Number.isFinite(opts.duration) || opts.duration <= 0) throw new Error('--duration must be positive');
+  if (opts.duration !== null && (!Number.isFinite(opts.duration) || opts.duration <= 0)) throw new Error('--duration must be positive');
   if (!Number.isFinite(opts.fps) || opts.fps <= 0) throw new Error('--fps must be positive');
   if (!Number.isFinite(opts.scale) || opts.scale <= 0) throw new Error('--scale must be positive');
-  opts.duration = Number(opts.duration);
+  opts.duration = opts.duration === null ? null : Number(opts.duration);
   opts.fps = Math.round(Number(opts.fps));
   opts.scale = Math.max(1, Math.min(6, Number(opts.scale)));
   opts.crf = Math.max(0, Math.min(63, Math.round(Number(opts.crf))));
@@ -141,6 +145,142 @@ function parseSvgLength(value) {
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function detectAnimationDuration(svgText) {
+  const durations = [];
+  const sources = new Set();
+
+  const smilRe = /<(animate|animateTransform|animateMotion|set)\b([^>]*)>/gi;
+  let m;
+  while ((m = smilRe.exec(svgText))) {
+    const attrs = m[2] || '';
+    const dur = parseDuration(attr(attrs, 'dur'));
+    const begin = Math.max(0, parseBegin(attr(attrs, 'begin')) || 0);
+    const repeatDur = parseDuration(attr(attrs, 'repeatDur'));
+    const repeatCountRaw = attr(attrs, 'repeatCount');
+    let total = 0;
+    if (repeatDur && Number.isFinite(repeatDur)) {
+      total = begin + repeatDur;
+    } else if (dur && Number.isFinite(dur)) {
+      const repeatCount = repeatCountRaw && repeatCountRaw !== 'indefinite' ? Number(repeatCountRaw) : 1;
+      total = begin + dur * (Number.isFinite(repeatCount) && repeatCount > 0 ? repeatCount : 1);
+    }
+    if (total > 0.01) {
+      durations.push(total);
+      sources.add('SMIL');
+    }
+  }
+
+  for (const d of extractCssAnimationDurations(svgText)) {
+    if (d > 0.01) {
+      durations.push(d);
+      sources.add('CSS');
+    }
+  }
+
+  return { duration: pickAutoDuration(durations), sources: Array.from(sources) };
+}
+
+function pickAutoDuration(durations) {
+  if (!durations.length) return 5;
+  const usable = durations.map(roundDuration).filter(d => d >= 1 && d <= 120);
+  const list = usable.length ? usable : durations.map(roundDuration).filter(d => d > 0 && d <= 120);
+  if (!list.length) return 5;
+  const counts = new Map();
+  for (const d of list) {
+    const key = String(Math.round(d * 10) / 10);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const ranked = Array.from(counts.entries())
+    .map(([key, count]) => ({ duration: Number(key), count }))
+    .sort((a, b) => b.count - a.count || b.duration - a.duration);
+  return roundDuration(ranked[0].duration);
+}
+
+function attr(attrs, name) {
+  const re = new RegExp(`${name}\\s*=\\s*(["'])((?:(?!\\1).)*)\\1`, 'i');
+  const m = String(attrs || '').match(re);
+  return m ? m[2] : null;
+}
+
+function extractCssAnimationDurations(text) {
+  const out = [];
+  const css = String(text || '');
+  const durationProp = /animation-duration\s*:\s*([^;}]+)/gi;
+  let match;
+  while ((match = durationProp.exec(css))) {
+    for (const part of match[1].split(',')) {
+      const time = parseCssTime(part.trim());
+      if (time !== null) out.push(time);
+    }
+  }
+
+  const shorthand = /(?:^|[;{\s])animation\s*:\s*([^;}]+)/gi;
+  while ((match = shorthand.exec(css))) {
+    for (const part of splitCssList(match[1])) {
+      const times = extractCssTimes(part);
+      if (times.length) out.push(times[0]);
+    }
+  }
+  return out;
+}
+
+function splitCssList(value) {
+  const parts = [];
+  let current = '';
+  let depth = 0;
+  for (const ch of String(value)) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth = Math.max(0, depth - 1);
+    if (ch === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
+function extractCssTimes(value) {
+  const times = [];
+  const re = /(^|[^\w.-])(-?(?:\d+\.?\d*|\.\d+)(?:ms|s))\b/gi;
+  let m;
+  while ((m = re.exec(value))) {
+    const t = parseCssTime(m[2]);
+    if (t !== null) times.push(t);
+  }
+  return times;
+}
+
+function parseCssTime(value) {
+  const m = String(value || '').trim().match(/^(-?(?:\d+\.?\d*|\.\d+))(ms|s)$/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return m[2].toLowerCase() === 'ms' ? n / 1000 : n;
+}
+
+function parseDuration(s) {
+  if (!s) return null;
+  const value = parseFloat(s);
+  if (!Number.isFinite(value) || value <= 0) return null;
+  return String(s).trim().endsWith('ms') ? value / 1000 : value;
+}
+
+function parseBegin(s) {
+  if (!s) return 0;
+  const first = String(s).split(';')[0].trim();
+  if (!first || first === 'indefinite') return 0;
+  const value = parseFloat(first);
+  if (!Number.isFinite(value)) return 0;
+  return first.endsWith('ms') ? value / 1000 : value;
+}
+
+function roundDuration(n) {
+  return Math.round(n * 100) / 100;
 }
 
 function htmlEscape(s) {
@@ -213,6 +353,11 @@ async function main() {
   const outputPath = path.resolve(output);
   const svg = fs.readFileSync(inputPath, 'utf8');
   const metrics = svgMetrics(svg);
+  if (opts.duration === null) {
+    const detected = detectAnimationDuration(svg);
+    opts.duration = detected.duration;
+    console.log(`Auto duration: ${opts.duration}s${detected.sources.length ? ` (${detected.sources.join(', ')})` : ''}`);
+  }
   const baseWidth = Math.round(opts.width || metrics.width);
   const baseHeight = Math.round(opts.height || metrics.height);
   const outWidth = opts.downscale ? baseWidth : Math.round(baseWidth * opts.scale);
@@ -259,12 +404,13 @@ svg{display:block;width:${baseWidth}px;height:${baseHeight}px;background:transpa
       svg.setAttribute('width', String(width));
       svg.setAttribute('height', String(height));
       if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      svg.style.background = 'transparent';
+      svg.style.setProperty('background', 'transparent', 'important');
+      svg.style.setProperty('background-color', 'transparent', 'important');
       svg.style.textRendering = 'geometricPrecision';
       svg.style.shapeRendering = 'auto';
 
       if (stripBg) {
-        const skip = new Set(['defs', 'title', 'desc', 'metadata']);
+        const skip = new Set(['defs', 'style', 'title', 'desc', 'metadata']);
         const firstDrawable = Array.from(svg.children).find(el => !skip.has(el.tagName.toLowerCase()));
         if (firstDrawable && firstDrawable.tagName.toLowerCase() === 'rect') {
           const rw = firstDrawable.getAttribute('width') || '';

@@ -5,6 +5,7 @@
     heightInput: document.getElementById('heightInput'),
     fpsInput: document.getElementById('fpsInput'),
     durationInput: document.getElementById('durationInput'),
+    autoDurationInput: document.getElementById('autoDurationInput'),
     recordScaleInput: document.getElementById('recordScaleInput'),
     bitrateInput: document.getElementById('bitrateInput'),
     transparentInput: document.getElementById('transparentInput'),
@@ -59,6 +60,7 @@
 
   els.svgInput.value = defaultSvg;
   checkSupport();
+  updateAutoDurationFromSvg(true);
   renderPreview();
 
   els.renderBtn.addEventListener('click', renderPreview);
@@ -68,9 +70,11 @@
     renderPreview();
   });
   els.downloadSvgBtn.addEventListener('click', downloadSvg);
+  els.autoDurationInput.addEventListener('change', () => updateAutoDurationFromSvg(false));
   els.exportBtn.addEventListener('click', exportWebM);
   els.svgInput.addEventListener('input', debounce(() => {
     autoSizeFromSvg();
+    updateAutoDurationFromSvg(false);
     renderPreview();
   }, 350));
 
@@ -88,8 +92,11 @@
 
   function checkSupport() {
     const canRecord = typeof MediaRecorder !== 'undefined' && HTMLCanvasElement.prototype.captureStream;
+    const canCssSnapshot = typeof document.getAnimations === 'function';
     if (canRecord) {
-      els.supportStatus.textContent = 'Браузерный экспорт доступен';
+      els.supportStatus.textContent = canCssSnapshot
+        ? 'Браузерный экспорт доступен, CSS-анимации поддерживаются'
+        : 'Браузерный экспорт доступен, но CSS-анимации могут быть ограничены';
       els.supportStatus.classList.add('ok');
     } else {
       els.supportStatus.textContent = 'MediaRecorder недоступен';
@@ -118,15 +125,18 @@
         els.heightInput.value = metrics.height;
         applyMediaSize(els.previewFrame, metrics.width, metrics.height);
       }
-      const previewSvg = ensureSvgViewport(svg, metrics.width, metrics.height);
+      updateAutoDurationFromSvg(false);
+      const previewSvg = ensureSvgViewport(svg, metrics.width, metrics.height, true);
       const srcdoc = `<!doctype html>
 <html><head><meta charset="utf-8"><style>
 html,body{margin:0;width:100%;height:100%;background:transparent;display:grid;place-items:center;overflow:hidden;}
-svg{width:100%;height:100%;display:block;background:transparent;text-rendering:geometricPrecision;shape-rendering:auto;}
+svg{width:100%;height:100%;display:block;text-rendering:geometricPrecision;shape-rendering:auto;}
 text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
 </style></head><body>${previewSvg}</body></html>`;
       els.previewFrame.srcdoc = srcdoc;
-      log(`Превью обновлено: ${metrics.width}×${metrics.height}. Блок превью теперь держит пропорции SVG.`);
+      const animationInfo = detectAnimationInfo(svg);
+      const cssAnimations = countCssAnimationHints(svg);
+      log(`Превью обновлено: ${metrics.width}×${metrics.height}. Авто-длительность: ${animationInfo.duration}s (${animationInfo.sources.join(', ') || 'анимации не найдены'}).${cssAnimations ? ` Найдены CSS-анимации/keyframes: ${cssAnimations}; экспорт будет делать live snapshot.` : ''}`);
     } catch (err) {
       log('Ошибка превью: ' + err.message);
     }
@@ -141,6 +151,141 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
         applyMediaSize(els.previewFrame, metrics.width, metrics.height);
       }
     } catch (_) {}
+  }
+
+  function updateAutoDurationFromSvg(force) {
+    if (!els.autoDurationInput || (!els.autoDurationInput.checked && !force)) return;
+    try {
+      const info = detectAnimationInfo(els.svgInput.value.trim());
+      if (info.duration && Number.isFinite(info.duration)) {
+        els.durationInput.value = String(info.duration);
+        els.durationInput.title = `Авто: ${info.duration}s — ${info.sources.join(', ') || 'fallback'}`;
+      }
+    } catch (_) {}
+  }
+
+  function detectAnimationInfo(svgText) {
+    const durations = [];
+    const sources = new Set();
+
+    try {
+      const doc = parseSvg(svgText);
+      const smilTags = 'animate, animateTransform, animateMotion, set';
+      for (const anim of Array.from(doc.querySelectorAll(smilTags))) {
+        const dur = parseDuration(anim.getAttribute('dur'));
+        const begin = Math.max(0, parseBegin(anim.getAttribute('begin')) || 0);
+        const repeatDur = parseDuration(anim.getAttribute('repeatDur'));
+        const repeatCountRaw = anim.getAttribute('repeatCount');
+        let total = 0;
+        if (repeatDur && Number.isFinite(repeatDur)) {
+          total = begin + repeatDur;
+        } else if (dur && Number.isFinite(dur)) {
+          const repeatCount = repeatCountRaw && repeatCountRaw !== 'indefinite' ? Number(repeatCountRaw) : 1;
+          total = begin + dur * (Number.isFinite(repeatCount) && repeatCount > 0 ? repeatCount : 1);
+        }
+        if (total > 0.01) {
+          durations.push(total);
+          sources.add('SMIL');
+        }
+      }
+    } catch (_) {}
+
+    for (const d of extractCssAnimationDurations(svgText)) {
+      if (d > 0.01) {
+        durations.push(d);
+        sources.add('CSS');
+      }
+    }
+
+    const picked = pickAutoDuration(durations);
+    return {
+      duration: picked,
+      durations: durations.map(roundDuration),
+      sources: Array.from(sources)
+    };
+  }
+
+  function pickAutoDuration(durations) {
+    if (!durations.length) return 5;
+    // Pick the dominant duration, not always the longest one.
+    // Heavy SVGs often have tiny jitter loops and long subtle background gradients; the main timeline is usually the most repeated duration.
+    const usable = durations.map(roundDuration).filter(d => d >= 1 && d <= 120);
+    const list = usable.length ? usable : durations.map(roundDuration).filter(d => d > 0 && d <= 120);
+    if (!list.length) return 5;
+    const counts = new Map();
+    for (const d of list) {
+      const key = String(Math.round(d * 10) / 10);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const ranked = Array.from(counts.entries())
+      .map(([key, count]) => ({ duration: Number(key), count }))
+      .sort((a, b) => b.count - a.count || b.duration - a.duration);
+    return roundDuration(ranked[0].duration);
+  }
+
+  function extractCssAnimationDurations(text) {
+    const out = [];
+    const css = String(text || '');
+
+    const durationProp = /animation-duration\s*:\s*([^;}]+)/gi;
+    let match;
+    while ((match = durationProp.exec(css))) {
+      for (const part of match[1].split(',')) {
+        const time = parseCssTime(part.trim());
+        if (time !== null) out.push(time);
+      }
+    }
+
+    const shorthand = /(?:^|[;{\s])animation\s*:\s*([^;}]+)/gi;
+    while ((match = shorthand.exec(css))) {
+      for (const part of splitCssList(match[1])) {
+        const times = extractCssTimes(part);
+        if (times.length) out.push(times[0]); // CSS shorthand: first time is duration, second time is delay.
+      }
+    }
+
+    return out;
+  }
+
+  function splitCssList(value) {
+    const parts = [];
+    let current = '';
+    let depth = 0;
+    for (const ch of String(value)) {
+      if (ch === '(') depth++;
+      if (ch === ')') depth = Math.max(0, depth - 1);
+      if (ch === ',' && depth === 0) {
+        parts.push(current);
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    if (current.trim()) parts.push(current);
+    return parts;
+  }
+
+  function extractCssTimes(value) {
+    const times = [];
+    const re = /(^|[^\w.-])(-?(?:\d+\.?\d*|\.\d+)(?:ms|s))\b/gi;
+    let m;
+    while ((m = re.exec(value))) {
+      const t = parseCssTime(m[2]);
+      if (t !== null) times.push(t);
+    }
+    return times;
+  }
+
+  function parseCssTime(value) {
+    const m = String(value || '').trim().match(/^(-?(?:\d+\.?\d*|\.\d+))(ms|s)$/i);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return m[2].toLowerCase() === 'ms' ? n / 1000 : n;
+  }
+
+  function roundDuration(n) {
+    return Math.round(n * 100) / 100;
   }
 
   function getSvgMetrics(svgText) {
@@ -192,14 +337,17 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     el.style.aspectRatio = `${w} / ${h}`;
   }
 
-
-  function ensureSvgViewport(svgText, width, height) {
+  function ensureSvgViewport(svgText, width, height, forceTransparentRoot) {
     try {
       const doc = parseSvg(svgText);
       const svg = doc.documentElement;
       if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       if (!svg.getAttribute('width') || String(svg.getAttribute('width')).trim().endsWith('%')) svg.setAttribute('width', String(width));
       if (!svg.getAttribute('height') || String(svg.getAttribute('height')).trim().endsWith('%')) svg.setAttribute('height', String(height));
+      if (forceTransparentRoot) {
+        svg.style.setProperty('background', 'transparent', 'important');
+        svg.style.setProperty('background-color', 'transparent', 'important');
+      }
       return new XMLSerializer().serializeToString(svg);
     } catch (_) {
       return svgText;
@@ -221,10 +369,12 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
       const w = parseFloat(svg.getAttribute('width')) || (viewBox.length === 4 ? viewBox[2] : NaN);
       const h = parseFloat(svg.getAttribute('height')) || (viewBox.length === 4 ? viewBox[3] : NaN);
       const children = Array.from(svg.children);
-      const firstDrawable = children.find(el => !['defs', 'title', 'desc', 'metadata'].includes(el.tagName.toLowerCase()));
+      const firstDrawable = children.find(el => !['defs', 'style', 'title', 'desc', 'metadata'].includes(el.tagName.toLowerCase()));
       if (firstDrawable && firstDrawable.tagName.toLowerCase() === 'rect' && looksLikeBackgroundRect(firstDrawable, w, h)) {
         firstDrawable.remove();
       }
+      svg.style.setProperty('background', 'transparent', 'important');
+      svg.style.setProperty('background-color', 'transparent', 'important');
       return new XMLSerializer().serializeToString(svg);
     } catch (_) {
       return svgText;
@@ -254,6 +404,8 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     els.progressBar.value = 0;
     els.exportBtn.disabled = true;
 
+    let snapshotter = null;
+
     try {
       const svgText = getPreparedSvg();
       const baseWidth = clampInt(els.widthInput.value, 16, 8192);
@@ -262,14 +414,20 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
       const outWidth = baseWidth * scale;
       const outHeight = baseHeight * scale;
       const fps = clampInt(els.fpsInput.value, 1, 120);
-      const duration = Math.max(0.1, Number(els.durationInput.value) || 5);
-      const frames = Math.max(1, Math.round(duration * fps));
+      let duration = Math.max(0.1, Number(els.durationInput.value) || 5);
+      if (els.autoDurationInput.checked) {
+        const info = detectAnimationInfo(svgText);
+        duration = info.duration;
+        els.durationInput.value = String(duration);
+      }
+      const theoreticalFrames = Math.max(1, Math.round(duration * fps));
       const transparent = els.transparentInput.checked;
       const bitrate = clampInt(els.bitrateInput.value, 1, 200) * 1_000_000;
       const mimeType = pickMimeType();
       if (!mimeType) throw new Error('Браузер не поддерживает WebM через MediaRecorder. Используй локальный export-node.');
 
-      log(`Быстрый экспорт: ${outWidth}×${outHeight} (${scale}×), ${fps} FPS, ${duration}s, ${frames} кадров, bitrate ${(bitrate / 1_000_000).toFixed(0)} Mbps.\nЭто браузерный export, для чистого alpha и лучших границ используй npm run export:svg.`);
+      const cssAnimations = countCssAnimationHints(svgText);
+      log(`Быстрый экспорт: ${outWidth}×${outHeight} (${scale}×), ${fps} FPS, ${duration}s, до ${theoreticalFrames} кадров, bitrate ${(bitrate / 1_000_000).toFixed(0)} Mbps.\nРежим v7: запись идёт в реальном времени, поэтому WebM не растягивается и не становится медленным. Если браузер не успевает, кадры пропускаются, но скорость остаётся правильной.\n${cssAnimations ? 'CSS keyframes/SMIL фиксируются по текущему времени перед каждым кадром.' : 'SMIL/CSS состояние фиксируется по текущему времени перед каждым кадром.'}\nДля идеального production alpha всё равно лучше npm run export:svg.`);
 
       const canvas = document.createElement('canvas');
       canvas.width = outWidth;
@@ -278,7 +436,7 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
-      const stream = canvas.captureStream(0);
+      const stream = canvas.captureStream(fps);
       const track = stream.getVideoTracks()[0];
       const chunks = [];
       const recorder = new MediaRecorder(stream, {
@@ -288,18 +446,42 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
 
       recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
       const stopped = new Promise(resolve => { recorder.onstop = resolve; });
-      recorder.start();
+      snapshotter = await createSvgSnapshotter(svgText, baseWidth, baseHeight, transparent);
 
-      const baseDoc = parseSvg(svgText);
-      for (let frame = 0; frame < frames; frame++) {
-        const t = frame / fps;
-        const frameSvg = renderSvgAtTime(baseDoc, t, baseWidth, baseHeight);
-        await drawSvgString(ctx, frameSvg, outWidth, outHeight, transparent);
-        if (track && typeof track.requestFrame === 'function') track.requestFrame();
-        els.progressBar.value = (frame + 1) / frames;
-        await nextFrame();
+      // IMPORTANT: MediaRecorder timestamps are wall-clock based.
+      // v6 rendered every SVG frame sequentially, so heavy SVGs produced slow/long WebM files.
+      // v7 records for exactly `duration` seconds and maps animation time to real elapsed time.
+      // If rendering is slower than target FPS, we skip frames instead of stretching the video.
+      const firstSvg = await snapshotter.snapshot(0);
+      await drawSvgString(ctx, firstSvg, outWidth, outHeight, transparent);
+      if (track && typeof track.requestFrame === 'function') track.requestFrame();
+
+      recorder.start(250);
+      const startMs = performance.now();
+      let lastFrameIndex = -1;
+
+      while (true) {
+        const elapsed = (performance.now() - startMs) / 1000;
+        if (elapsed >= duration) break;
+
+        const frameIndex = Math.floor(elapsed * fps);
+        if (frameIndex !== lastFrameIndex) {
+          const t = elapsed;
+          const frameSvg = await snapshotter.snapshot(t);
+          await drawSvgString(ctx, frameSvg, outWidth, outHeight, transparent);
+          if (track && typeof track.requestFrame === 'function') track.requestFrame();
+          lastFrameIndex = frameIndex;
+          els.progressBar.value = Math.min(1, elapsed / duration);
+        } else {
+          await sleep(1);
+        }
+
+        const nextFrameAt = startMs + ((lastFrameIndex + 1) * 1000 / fps);
+        const waitMs = nextFrameAt - performance.now();
+        if (waitMs > 1) await sleep(Math.min(waitMs, 8));
       }
 
+      els.progressBar.value = 1;
       recorder.stop();
       await stopped;
       stream.getTracks().forEach(t => t.stop());
@@ -312,10 +494,11 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
       els.webmPreview.src = url;
       applyMediaSize(els.webmPreview, baseWidth, baseHeight);
       els.videoPanel.classList.remove('hidden');
-      log(`Готово: ${(blob.size / 1024 / 1024).toFixed(2)} MB. Ниже появилось превью WebM в размере ${baseWidth}×${baseHeight}. Проверяй прозрачность на шахматке, чёрном и белом фоне.`);
+      log(`Готово: ${(blob.size / 1024 / 1024).toFixed(2)} MB. Ниже превью WebM в размере ${baseWidth}×${baseHeight}. Проверяй прозрачность на шахматке, чёрном и белом фоне.`);
     } catch (err) {
       log('Ошибка экспорта: ' + err.message);
     } finally {
+      if (snapshotter) snapshotter.destroy();
       els.exportBtn.disabled = false;
       els.progressBar.classList.add('hidden');
     }
@@ -330,19 +513,142 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     return types.find(type => MediaRecorder.isTypeSupported(type)) || '';
   }
 
-  function renderSvgAtTime(baseDoc, t, width, height) {
-    const svg = baseDoc.documentElement.cloneNode(true);
-    if (!svg.getAttribute('width')) svg.setAttribute('width', String(width));
-    if (!svg.getAttribute('height')) svg.setAttribute('height', String(height));
-    if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-    svg.setAttribute('style', `${svg.getAttribute('style') || ''}; text-rendering: geometricPrecision; shape-rendering: auto;`);
+  async function createSvgSnapshotter(svgText, width, height, transparent) {
+    const svg = ensureSvgViewport(svgText, width, height, transparent);
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('sandbox', 'allow-same-origin');
+    iframe.style.cssText = [
+      'position:fixed',
+      'left:-100000px',
+      'top:0',
+      `width:${width}px`,
+      `height:${height}px`,
+      'border:0',
+      'opacity:0.001',
+      'pointer-events:none',
+      'z-index:-1'
+    ].join(';');
 
+    const loaded = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Не удалось загрузить SVG в hidden iframe для snapshot.')), 5000);
+      iframe.onload = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+
+    iframe.srcdoc = `<!doctype html>
+<html><head><meta charset="utf-8"><style>
+html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:transparent;}
+body{display:block;}
+svg{display:block;width:${width}px;height:${height}px;background:transparent;text-rendering:geometricPrecision;shape-rendering:auto;}
+*{-webkit-font-smoothing:antialiased;}
+</style></head><body>${svg}</body></html>`;
+
+    document.body.appendChild(iframe);
+    await loaded;
+
+    const doc = iframe.contentDocument;
+    const win = iframe.contentWindow;
+    const liveSvg = doc && doc.querySelector('svg');
+    if (!doc || !win || !liveSvg) throw new Error('В hidden iframe не найден <svg>.');
+    if (doc.fonts && doc.fonts.ready) {
+      try { await doc.fonts.ready; } catch (_) {}
+    }
+
+    return {
+      async snapshot(time) {
+        setNativeAnimationTime(doc, liveSvg, time);
+        await raf();
+        setNativeAnimationTime(doc, liveSvg, time);
+        const clone = liveSvg.cloneNode(true);
+        clone.setAttribute('width', String(width));
+        clone.setAttribute('height', String(height));
+        if (!clone.getAttribute('viewBox')) clone.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        clone.style.setProperty('background', 'transparent', 'important');
+        clone.style.setProperty('background-color', 'transparent', 'important');
+        inlineComputedSvgStyles(liveSvg, clone, win);
+        applySmilAnimationsToSnapshot(clone, time);
+        freezeSnapshot(clone);
+        return new XMLSerializer().serializeToString(clone);
+      },
+      destroy() {
+        iframe.remove();
+      }
+    };
+  }
+
+  function setNativeAnimationTime(doc, svg, time) {
+    if (svg && typeof svg.pauseAnimations === 'function' && typeof svg.setCurrentTime === 'function') {
+      try {
+        svg.pauseAnimations();
+        svg.setCurrentTime(time);
+      } catch (_) {}
+    }
+    if (doc && typeof doc.getAnimations === 'function') {
+      for (const anim of doc.getAnimations({ subtree: true })) {
+        try {
+          anim.pause();
+          anim.currentTime = time * 1000;
+        } catch (_) {}
+      }
+    }
+  }
+
+  function inlineComputedSvgStyles(sourceSvg, targetSvg, win) {
+    const props = [
+      'opacity', 'visibility', 'mix-blend-mode',
+      'transform', 'transform-origin', 'transform-box',
+      'filter', 'clip-path', 'mask',
+      'fill', 'fill-opacity', 'fill-rule',
+      'stroke', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset',
+      'stop-color', 'stop-opacity', 'flood-color', 'flood-opacity', 'lighting-color',
+      'font-family', 'font-size', 'font-style', 'font-weight', 'font-stretch', 'font-variant', 'letter-spacing', 'word-spacing',
+      'text-anchor', 'dominant-baseline', 'alignment-baseline', 'baseline-shift',
+      'paint-order', 'text-rendering', 'shape-rendering', 'color',
+      'display'
+    ];
+
+    const sourceElements = [sourceSvg, ...sourceSvg.querySelectorAll('*')];
+    const targetElements = [targetSvg, ...targetSvg.querySelectorAll('*')];
+
+    for (let i = 0; i < sourceElements.length; i++) {
+      const src = sourceElements[i];
+      const dst = targetElements[i];
+      if (!src || !dst || dst.nodeType !== 1) continue;
+      if (dst.tagName && dst.tagName.toLowerCase() === 'style') continue;
+
+      const cs = win.getComputedStyle(src);
+      for (const prop of props) {
+        const value = cs.getPropertyValue(prop);
+        if (!value || value === 'normal' || value === 'auto') continue;
+        if (prop === 'transform' && value === 'none') continue;
+        if (prop === 'display' && value !== 'none') continue;
+        if ((prop === 'clip-path' || prop === 'mask' || prop === 'filter') && value === 'none') continue;
+        dst.style.setProperty(prop, value);
+      }
+      dst.style.setProperty('animation', 'none', 'important');
+      dst.style.setProperty('transition', 'none', 'important');
+    }
+  }
+
+  function applySmilAnimationsToSnapshot(svg, t) {
     const animations = Array.from(svg.querySelectorAll('animate, animateTransform'));
     for (const anim of animations) {
       try { applyAnimation(anim, t); } catch (_) {}
     }
-    for (const anim of animations) anim.remove();
-    return new XMLSerializer().serializeToString(svg);
+  }
+
+  function freezeSnapshot(svg) {
+    svg.querySelectorAll('style').forEach(el => el.remove());
+    svg.querySelectorAll('animate, animateTransform, animateMotion, set').forEach(el => el.remove());
+    svg.querySelectorAll('*').forEach(el => {
+      if (el.style) {
+        el.style.setProperty('animation', 'none', 'important');
+        el.style.setProperty('transition', 'none', 'important');
+      }
+    });
   }
 
   function applyAnimation(anim, t) {
@@ -350,32 +656,80 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     if (!target) return;
     const tag = anim.tagName.toLowerCase();
     const dur = parseDuration(anim.getAttribute('dur')) || 1;
+    const begin = parseBegin(anim.getAttribute('begin'));
     const repeat = anim.getAttribute('repeatCount');
-    const valuesRaw = anim.getAttribute('values');
     const attr = anim.getAttribute('attributeName') || '';
-    if (!valuesRaw || !attr) return;
+    if (!attr) return;
 
-    const values = valuesRaw.split(';').map(v => v.trim()).filter(Boolean);
+    const values = getAnimationValues(anim);
     if (values.length === 0) return;
-    const localT = repeat === 'indefinite' || repeat === null ? ((t % dur) + dur) % dur : Math.min(t, dur);
-    const p = dur === 0 ? 1 : localT / dur;
-    const value = interpolateValues(values, p);
+
+    let localT = t - begin;
+    if (repeat === 'indefinite') {
+      localT = ((localT % dur) + dur) % dur;
+    } else {
+      localT = Math.max(0, Math.min(localT, dur));
+    }
+    const p = dur === 0 ? 1 : Math.max(0, Math.min(1, localT / dur));
+    const keyTimes = parseKeyTimes(anim.getAttribute('keyTimes'), values.length);
+    const value = interpolateValuesWithKeyTimes(values, keyTimes, p, anim.getAttribute('calcMode'));
 
     if (tag === 'animatetransform') {
       const type = anim.getAttribute('type') || 'translate';
-      target.setAttribute('transform', `${type}(${value})`);
+      target.setAttribute(attr, `${type}(${value})`);
     } else {
       target.setAttribute(attr, value);
     }
   }
 
-  function interpolateValues(values, progress) {
+  function getAnimationValues(anim) {
+    const valuesRaw = anim.getAttribute('values');
+    if (valuesRaw) return valuesRaw.split(';').map(v => v.trim()).filter(Boolean);
+    const from = anim.getAttribute('from');
+    const to = anim.getAttribute('to');
+    const by = anim.getAttribute('by');
+    if (from !== null && to !== null) return [from.trim(), to.trim()];
+    if (to !== null) return [anim.parentElement.getAttribute(anim.getAttribute('attributeName')) || '', to.trim()].filter(Boolean);
+    if (from !== null && by !== null) return [from.trim(), by.trim()];
+    return [];
+  }
+
+  function parseKeyTimes(value, expectedLength) {
+    if (!value) return null;
+    const times = value.split(';').map(v => Number(v.trim()));
+    if (times.length !== expectedLength || !times.every(Number.isFinite)) return null;
+    if (times[0] !== 0) times[0] = 0;
+    if (times[times.length - 1] !== 1) times[times.length - 1] = 1;
+    return times;
+  }
+
+  function interpolateValuesWithKeyTimes(values, keyTimes, progress, calcMode) {
+    if (values.length === 1) return values[0];
+    if (!keyTimes) return interpolateValues(values, progress, calcMode);
+
+    let segment = 0;
+    for (let i = 0; i < keyTimes.length - 1; i++) {
+      if (progress >= keyTimes[i] && progress <= keyTimes[i + 1]) {
+        segment = i;
+        break;
+      }
+    }
+    const start = keyTimes[segment];
+    const end = keyTimes[Math.min(segment + 1, keyTimes.length - 1)];
+    const local = end === start ? 0 : (progress - start) / (end - start);
+    return interpolatePair(values[segment], values[Math.min(segment + 1, values.length - 1)], local, calcMode);
+  }
+
+  function interpolateValues(values, progress, calcMode) {
     if (values.length === 1) return values[0];
     const scaled = Math.min(0.999999, Math.max(0, progress)) * (values.length - 1);
     const i = Math.floor(scaled);
     const local = scaled - i;
-    const a = values[i];
-    const b = values[Math.min(i + 1, values.length - 1)];
+    return interpolatePair(values[i], values[Math.min(i + 1, values.length - 1)], local, calcMode);
+  }
+
+  function interpolatePair(a, b, local, calcMode) {
+    if (calcMode === 'discrete') return local < 1 ? a : b;
 
     const colorA = parseColor(a);
     const colorB = parseColor(b);
@@ -396,6 +750,15 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     const value = parseFloat(s);
     if (!Number.isFinite(value)) return 1;
     return s.trim().endsWith('ms') ? value / 1000 : value;
+  }
+
+  function parseBegin(s) {
+    if (!s) return 0;
+    const first = String(s).split(';')[0].trim();
+    if (!first || first === 'indefinite') return 0;
+    const value = parseFloat(first);
+    if (!Number.isFinite(value)) return 0;
+    return first.endsWith('ms') ? value / 1000 : value;
   }
 
   function parseColor(s) {
@@ -485,13 +848,22 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     }
   }
 
+  function countCssAnimationHints(svgText) {
+    const matches = svgText.match(/@keyframes|animation\s*:|animation-name\s*:/gi);
+    return matches ? matches.length : 0;
+  }
+
   function clampInt(value, min, max) {
     const n = Math.round(Number(value));
     return Math.min(max, Math.max(min, Number.isFinite(n) ? n : min));
   }
 
-  function nextFrame() {
+  function raf() {
     return new Promise(resolve => requestAnimationFrame(resolve));
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   function debounce(fn, wait) {

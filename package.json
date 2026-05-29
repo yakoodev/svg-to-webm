@@ -1,12 +1,13 @@
 {
   "name": "svg-webm-pages",
-  "version": "5.0.0",
+  "version": "7.0.0",
   "private": true,
-  "description": "Paste animated SVG, preview it in browser, export WebM locally with transparent alpha.",
+  "description": "Paste animated SVG, preview it in browser, export WebM with transparent alpha. Supports SMIL and CSS keyframes with auto duration and real-time browser recording.",
   "scripts": {
     "start": "python -m http.server 5173",
     "export:svg": "node export-node/export-svg.js",
-    "export:example": "node export-node/export-svg.js examples/text-gradient-with-bg.svg output.webm --duration=5 --fps=60 --strip-bg --scale=2 --crf=10"
+    "export:example": "node export-node/export-svg.js examples/text-gradient-with-bg.svg output.webm --fps=60 --strip-bg --scale=2 --crf=10",
+    "export:yakoo": "node export-node/export-svg.js examples/yakoo_pnv_animated_banner_smooth_intro.svg yakoo-output.webm --fps=60 --strip-bg --scale=2 --crf=10"
   },
   "dependencies": {
     "puppeteer": "^24.0.0"

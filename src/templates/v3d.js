@@ -197,7 +197,6 @@
 
     const o = [];
     const A = s => o.push(s);
-    const tw_ = (t2, f, s) => tw(t2, f, s);
     const glow = c(CH.glow || 'lavender', 'свечение персонажа');
 
     A(`<style>
@@ -541,10 +540,80 @@
     return { svg, duration: D, viewBox: vb, width: vb[2], height: vb[3], warnings };
   }
 
+  const common = [
+    { path: 'duration', label: 'Длительность, с', kind: 'number', min: 2.5, max: 20, step: 0.5, half: true },
+    { path: 'emotion', label: 'Картинка персонажа', kind: 'image', half: true },
+    { path: 'react.emotion', label: 'Сменить эмоцию на (удар)', kind: 'image', optional: 'react', optionalInit: { at: 0.9 }, half: true },
+    { path: 'react.at', label: '…через, с от начала сцены', kind: 'number', min: 0.1, max: 19, step: 0.05, half: true, showIf: s => !!s.react },
+    { path: 'kicker', label: 'Подводка (маленькая строка сверху)', kind: 'text' }
+  ];
+  const NEW_SCENE = {
+    text: () => ({ type: 'text', duration: 4, emotion: 'u3.png', kicker: 'Подводка', lines: ['НОВАЯ СЦЕНА', '{ТЕКСТ}'] }),
+    counter: () => ({ type: 'counter', duration: 4, emotion: 'u2.png', kicker: 'Подводка', number: 100, suffix: '+', word: 'МОДЕЛЕЙ', sub: '' }),
+    promo: () => ({ type: 'promo', duration: 4, emotion: 'u7.png', react: { at: 0.95, emotion: 'u10.png' }, kicker: 'Подводка', headline: 'СКИДКА {10%}', label: 'промокод' }),
+    site: () => ({ type: 'site', duration: 4, emotion: 'u5.png', kicker: 'Подводка', sub: '' })
+  };
+  const schema = {
+    sections: [
+      { title: 'Промокод и сайт', open: true, fields: [
+        { path: 'promo_code', label: 'Промокод', kind: 'text', half: true },
+        { path: 'site', label: 'Сайт', kind: 'text', half: true }
+      ] },
+      { title: 'Персонаж', fields: [
+        { path: 'character.scale', label: 'Размер', kind: 'number', min: 0.3, max: 2, step: 0.02, half: true },
+        { path: 'character.glow', label: 'Свечение вокруг', kind: 'color-name', half: true },
+        { path: 'character.mirror', label: 'Отзеркалить (чтобы смотрела на текст)', kind: 'check' },
+        { path: 'character.rays', label: 'Вращающиеся лучи за персонажем', kind: 'check' }
+      ] },
+      { title: 'Ленты и декор', fields: [
+        { path: 'ribbons.front.enabled', label: 'Лента поверх карточки', kind: 'check' },
+        { path: 'ribbons.front.words', label: 'Слова ленты (через запятую)', kind: 'list' },
+        { path: 'ribbons.back.enabled', label: 'Лента за персонажем', kind: 'check' },
+        { path: 'ribbons.back.words', label: 'Слова ленты (через запятую)', kind: 'list' },
+        { path: 'decor.objects', label: 'Звезда, сердце, кристалл', kind: 'check' },
+        { path: 'decor.progress', label: 'Полоски прогресса сцен', kind: 'check' }
+      ] }
+    ],
+    colors: { path: 'colors', labels: COLOR_LABELS },
+    sceneTypes: SCENE_TYPES,
+    sceneHint: 'Слово в фигурных скобках красится: <code>ОТ {490 ₽}</code> — главным цветом, <code>{PNGTuber|mint}</code> — мятным.',
+    sceneFields: {
+      text: [...common,
+        { path: 'lines.0', label: 'Строка 1', kind: 'text', placeholder: 'ГОТОВАЯ МОДЕЛЬ' },
+        { path: 'lines.1', label: 'Строка 2 (можно пусто)', kind: 'text', placeholder: '{ОТ 490 ₽}' },
+        { path: 'underline', label: 'Подчеркнуть (кусок последней строки)', kind: 'text', placeholder: '490 ₽' },
+        { path: 'sub', label: 'Строка под заголовком (если строка одна)', kind: 'text' }],
+      counter: [...common,
+        { path: 'number', label: 'Число', kind: 'number', min: 0, max: 1e9, step: 1, third: true },
+        { path: 'suffix', label: 'Суффикс', kind: 'text', placeholder: '+', third: true },
+        { path: 'word', label: 'Слово', kind: 'text', placeholder: 'ТОВАРОВ', third: true },
+        { path: 'sub', label: 'Строка под числом', kind: 'text' }],
+      promo: [...common,
+        { path: 'headline', label: 'Заголовок (часть в {} впечатывается ударом)', kind: 'text', placeholder: 'СКИДКА {10%}' },
+        { path: 'label', label: 'Слово перед кодом', kind: 'text', placeholder: 'промокод' }],
+      site: [...common,
+        { path: 'site_display', label: 'Как написать сайт (пусто = из поля «Сайт»)', kind: 'text', placeholder: 'VTUBIKA{.STORE}' },
+        { path: 'sub', label: 'Строка под сайтом', kind: 'text' }]
+    },
+    newScene: NEW_SCENE,
+    sceneTitle: s => SCENE_TYPES[s.type].split(':')[0]
+  };
+
   window.Templates = window.Templates || {};
   window.Templates.v3d = {
-    id: 'v3d', title: 'vtubika v3d — карточка с персонажем', defaults, generate,
-    sceneTypes: SCENE_TYPES, builtinImages: BUILTIN_IMAGES, emotionNames: EMOTION_NAMES,
-    colorLabels: COLOR_LABELS, assetDir: 'assets/v3d/', wideViewBox: [-80, 0, 2080, 1160]
+    id: 'v3d', title: 'Карточка с персонажем (v3d)', defaults, generate, schema,
+    assetDir: 'assets/v3d/', builtinImages: BUILTIN_IMAGES, emotionNames: EMOTION_NAMES,
+    fonts: { unbounded: 'assets/fonts/unbounded-800.woff2', manrope: 'assets/fonts/manrope-800.woff2' },
+    metrics: 'assets/fonts/metrics.json',
+    wideViewBox: [-80, 0, 2080, 1160],
+    imageOptions: (cfg, name) => {
+      const ch = cfg.character || {}; const tk = (cfg.image_tweaks || {})[name] || {};
+      return { scale: (Number(ch.scale) || 0.86) * (Number(tk.scale) || 1), mirror: ch.mirror !== false };
+    },
+    usedImages: cfg => {
+      const s = new Set();
+      for (const sc of cfg.scenes || []) { if (sc.emotion) s.add(sc.emotion); if (sc.react && sc.react.emotion) s.add(sc.react.emotion); }
+      return [...s];
+    }
   };
 })();

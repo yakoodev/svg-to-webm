@@ -277,3 +277,10 @@ progress { width: 100%; height: 12px; margin-top: 14px; }
   .form-panel, .preview-col { position: static; max-height: none; }
   .preview-col { order: -1; }
 }
+
+.fgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0 10px; }
+.fgrid > * { grid-column: span 6; }
+.fgrid > .half { grid-column: span 3; }
+.fgrid > .third { grid-column: span 2; }
+.fgrid .hint { font-size: 12px; }
+.scene-card.off { opacity: .55; }

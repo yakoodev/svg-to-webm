@@ -8,6 +8,7 @@
   <script defer src="vendor/webm-muxer.js"></script>
   <script defer src="src/engine.js"></script>
   <script defer src="src/templates/v3d.js"></script>
+  <script defer src="src/templates/a.js" onerror="this.remove()"></script>
   <script defer src="src/constructor.js"></script>
 </head>
 <body>
@@ -32,17 +33,11 @@
           <select id="templateSelect"></select>
         </label>
 
-        <details open>
-          <summary>Промокод и сайт</summary>
-          <div class="fields two">
-            <label class="field"><span>Промокод</span><input id="promo" type="text" /></label>
-            <label class="field"><span>Сайт</span><input id="site" type="text" /></label>
-          </div>
-        </details>
+        <div id="sectionsTop"></div>
 
         <details open>
           <summary>Сцены <small id="loopInfo"></small></summary>
-          <p class="hint">Сцены идут по очереди, потом всё повторяется. Слово в фигурных скобках красится: <code>ОТ {490 ₽}</code> — главным цветом, <code>{PNGTuber|mint}</code> — мятным.</p>
+          <p class="hint">Сцены идут по очереди, потом всё повторяется. <span id="sceneHint"></span></p>
           <div id="scenes"></div>
           <div class="toolbar">
             <select id="newSceneType"></select>
@@ -66,25 +61,7 @@
           <div class="toolbar"><button type="button" class="ghost" id="resetColors">Вернуть цвета по умолчанию</button></div>
         </details>
 
-        <details>
-          <summary>Персонаж</summary>
-          <div class="fields two">
-            <label class="field"><span>Размер</span><input id="chScale" type="number" min="0.3" max="2" step="0.02" /></label>
-            <label class="field"><span>Свечение вокруг</span><select id="chGlow"></select></label>
-          </div>
-          <label class="check"><input id="chMirror" type="checkbox" /><span>Отзеркалить (чтобы смотрела на текст)</span></label>
-          <label class="check"><input id="chRays" type="checkbox" /><span>Вращающиеся лучи за персонажем</span></label>
-        </details>
-
-        <details>
-          <summary>Ленты и декор</summary>
-          <label class="check"><input id="rbFrontOn" type="checkbox" /><span>Лента поверх карточки</span></label>
-          <label class="field"><span>Слова ленты (через запятую)</span><input id="rbFrontWords" type="text" /></label>
-          <label class="check"><input id="rbBackOn" type="checkbox" /><span>Лента за персонажем</span></label>
-          <label class="field"><span>Слова ленты (через запятую)</span><input id="rbBackWords" type="text" /></label>
-          <label class="check"><input id="decObjects" type="checkbox" /><span>Звезда, сердце, кристалл</span></label>
-          <label class="check"><input id="decProgress" type="checkbox" /><span>Полоски прогресса сцен</span></label>
-        </details>
+        <div id="sectionsBottom"></div>
 
         <details>
           <summary>Проект</summary>

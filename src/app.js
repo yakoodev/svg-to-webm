@@ -212,6 +212,12 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     const usable = durations.map(roundDuration).filter(d => d >= 1 && d <= 120);
     const list = usable.length ? usable : durations.map(roundDuration).filter(d => d > 0 && d <= 120);
     if (!list.length) return 5;
+    const longest = Math.max(...list);
+    const divides = list.every(d => {
+      const k = longest / d;
+      return Math.abs(k - Math.round(k)) < 0.02;
+    });
+    if (divides) return roundDuration(longest);
     const counts = new Map();
     for (const d of list) {
       const key = String(Math.round(d * 10) / 10);
@@ -395,7 +401,70 @@ text{-webkit-font-smoothing:antialiased;paint-order:stroke fill markers;}
     return hasFill && noStroke && xOk && yOk && wOk && hOk;
   }
 
+  let exportAbort = null;
+
   async function exportWebM() {
+    if (exportAbort) { exportAbort.abort(); return; }
+    if (window.SvgEngine && await window.SvgEngine.isOfflineSupported()) return exportWebMOffline();
+    return exportWebMRealtime();
+  }
+
+  async function exportWebMOffline() {
+    if (lastVideoUrl) URL.revokeObjectURL(lastVideoUrl);
+    els.videoPanel.classList.add('hidden');
+    els.progressBar.classList.remove('hidden');
+    els.progressBar.value = 0;
+    const label = els.exportBtn.textContent;
+    exportAbort = new AbortController();
+    els.exportBtn.textContent = 'Остановить экспорт';
+    try {
+      const svgText = getPreparedSvg();
+      const width = clampInt(els.widthInput.value, 16, 8192);
+      const height = clampInt(els.heightInput.value, 16, 8192);
+      const scale = clampInt(els.recordScaleInput.value, 1, 4);
+      const fps = clampInt(els.fpsInput.value, 1, 120);
+      let duration = Math.max(0.1, Number(els.durationInput.value) || 5);
+      if (els.autoDurationInput.checked) {
+        duration = detectAnimationInfo(svgText).duration;
+        els.durationInput.value = String(duration);
+      }
+      const svg = ensureSvgViewport(svgText, width, height, true);
+      log(`Экспорт: ${width * scale}×${height * scale}, ${fps} FPS, ${duration} с — ${Math.round(duration * fps)} кадров.
+Кадры рендерятся по одному (без пропусков), прозрачность сохраняется. Тяжёлый SVG просто дольше считается.`);
+      const blob = await window.SvgEngine.renderWebM({
+        svgText: svg, width, height, fps, duration, scale, signal: exportAbort.signal,
+        onProgress: p => {
+          els.progressBar.value = p.frame / p.total;
+          log(`Кадр ${p.frame} из ${p.total} · прошло ${fmtTime(p.elapsed)} · осталось ~${fmtTime(p.eta)}`);
+        }
+      });
+      showVideo(blob, width, height, `Готово: ${(blob.size / 1024 / 1024).toFixed(2)} MB, ${Math.round(duration * fps)} кадров, прозрачный VP9. Проверь на шахматке, чёрном и белом фоне.`);
+    } catch (err) {
+      log('Ошибка экспорта: ' + (err && err.message || err));
+    } finally {
+      exportAbort = null;
+      els.exportBtn.textContent = label;
+      els.progressBar.classList.add('hidden');
+    }
+  }
+
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.round(sec));
+    return sec >= 60 ? `${Math.floor(sec / 60)} мин ${sec % 60} с` : `${sec} с`;
+  }
+
+  function showVideo(blob, width, height, message) {
+    const url = URL.createObjectURL(blob);
+    lastVideoUrl = url;
+    els.downloadLink.href = url;
+    els.downloadLink.download = 'animation.webm';
+    els.webmPreview.src = url;
+    applyMediaSize(els.webmPreview, width, height);
+    els.videoPanel.classList.remove('hidden');
+    log(message);
+  }
+
+  async function exportWebMRealtime() {
     if (lastVideoUrl) URL.revokeObjectURL(lastVideoUrl);
     els.videoPanel.classList.add('hidden');
     els.webmPreview.removeAttribute('src');
@@ -746,9 +815,9 @@ svg{display:block;width:${width}px;height:${height}px;background:transparent;tex
   }
 
   function parseDuration(s) {
-    if (!s) return 1;
+    if (!s) return null;
     const value = parseFloat(s);
-    if (!Number.isFinite(value)) return 1;
+    if (!Number.isFinite(value)) return null;
     return s.trim().endsWith('ms') ? value / 1000 : value;
   }
 

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SVG → WebM</title>
   <link rel="stylesheet" href="styles.css" />
+  <script defer src="vendor/webm-muxer.js"></script>
+  <script defer src="src/engine.js"></script>
   <script defer src="src/app.js"></script>
 </head>
 <body>
@@ -27,7 +29,7 @@
         <textarea id="svgInput" spellcheck="false"></textarea>
         <div class="toolbar">
           <button id="renderBtn" type="button">Обновить превью</button>
-          <button id="exportBtn" type="button">Быстрый экспорт WebM</button>
+          <button id="exportBtn" type="button">Экспорт WebM</button>
           <button class="secondary" id="downloadSvgBtn" type="button">Скачать SVG</button>
         </div>
       </section>
@@ -44,7 +46,7 @@
         </label>
         <label>
           <span>FPS</span>
-          <input id="fpsInput" type="number" min="1" max="120" step="1" value="60" />
+          <input id="fpsInput" type="number" min="1" max="120" step="1" value="30" />
         </label>
         <label>
           <span>Длительность, сек</span>
@@ -56,7 +58,7 @@
         </label>
         <label>
           <span>Масштаб записи</span>
-          <input id="recordScaleInput" type="number" min="1" max="4" step="1" value="2" />
+          <input id="recordScaleInput" type="number" min="1" max="4" step="1" value="1" />
         </label>
         <label>
           <span>Битрейт браузерного WebM, Mbps</span>

@@ -155,6 +155,7 @@
 
   // ------------------------------------------------------------ генерация + превью
   async function build(cfg = state.cfg) {
+    if (!cfg.viewBox && state.tpl.previewViewBox) cfg = { ...cfg, viewBox: state.tpl.previewViewBox };
     const base = await tplCtx(state.tpl);
     const images = {};
     for (const n of state.tpl.usedImages(cfg)) images[n] = await processImage(n);
@@ -197,7 +198,8 @@
     document.querySelectorAll('.scene-chips button').forEach((b, i) => b.classList.toggle('on', i === idx));
     requestAnimationFrame(tick);
   }
-  const sceneTitle = s => (state.tpl.schema.sceneTitle ? state.tpl.schema.sceneTitle(s) : state.tpl.schema.sceneTypes[s.type]) || s.type;
+  const sceneTitle = s => String((state.tpl.schema.sceneTitle ? state.tpl.schema.sceneTitle(s) : state.tpl.schema.sceneTypes[s.type]) || s.type)
+    .replace(/\{(promo|site|discount)\}/g, (m, k) => ({ promo: state.cfg.promo_code, site: state.cfg.site, discount: state.cfg.discount })[k] ?? m);
   function renderChips() {
     const box = $('sceneChips'); box.innerHTML = '';
     state.cfg.scenes.forEach((s, i) => {
@@ -277,12 +279,15 @@
   }
 
   function renderSections() {
-    const top = $('sectionsTop'), bottom = $('sectionsBottom'); top.innerHTML = ''; bottom.innerHTML = '';
+    const top = $('sectionsTop'), bottom = $('sectionsBottom');
+    const wasOpen = new Map([...document.querySelectorAll('#sectionsTop details, #sectionsBottom details')].map(d => [d.dataset.title, d.open]));
+    top.innerHTML = ''; bottom.innerHTML = '';
     (state.tpl.schema.sections || []).forEach((sec, i) => {
-      const d = document.createElement('details'); if (sec.open) d.open = true;
+      const d = document.createElement('details'); d.dataset.title = sec.title;
+      if (wasOpen.has(sec.title) ? wasOpen.get(sec.title) : sec.open) d.open = true;
       const sm = document.createElement('summary'); sm.textContent = sec.title; d.appendChild(sm);
       if (sec.hint) { const p = document.createElement('p'); p.className = 'hint'; p.innerHTML = sec.hint; d.appendChild(p); }
-      d.appendChild(fieldGrid(sec.fields, state.cfg, () => { state.processed.clear(); refreshSoon(); }));
+      d.appendChild(fieldGrid(sec.fields, state.cfg, f => { state.processed.clear(); if (f.kind === 'check' && sec.fields.some(x => x.showIf)) renderSections(); refreshSoon(); }));
       (i === 0 || sec.top ? top : bottom).appendChild(d);
     });
   }

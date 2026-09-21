@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Конструктор баннера</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script defer src="vendor/webm-muxer.js"></script>
+  <script defer src="src/engine.js"></script>
+  <script defer src="src/templates/v3d.js"></script>
+  <script defer src="src/constructor.js"></script>
+</head>
+<body>
+  <main class="app">
+    <nav class="tabs">
+      <a href="index.html">SVG → WebM</a>
+      <a href="constructor.html" class="active">Конструктор баннера</a>
+    </nav>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">шаблон · тексты · картинки · прозрачный WebM</p>
+        <h1>Конструктор баннера</h1>
+        <p class="lead">Меняй промокод, тексты, сцены, цвета и картинки персонажа. Превью обновляется сразу. Кнопка «Скачать WebM» рендерит видео с прозрачным фоном для OBS прямо в браузере, ничего ставить не нужно. Всё сохраняется в этом браузере автоматически.</p>
+      </div>
+      <div class="status-pill" id="status">Загрузка…</div>
+    </header>
+
+    <section class="cgrid">
+      <aside class="panel form-panel" id="form">
+        <label class="field">
+          <span>Шаблон</span>
+          <select id="templateSelect"></select>
+        </label>
+
+        <details open>
+          <summary>Промокод и сайт</summary>
+          <div class="fields two">
+            <label class="field"><span>Промокод</span><input id="promo" type="text" /></label>
+            <label class="field"><span>Сайт</span><input id="site" type="text" /></label>
+          </div>
+        </details>
+
+        <details open>
+          <summary>Сцены <small id="loopInfo"></small></summary>
+          <p class="hint">Сцены идут по очереди, потом всё повторяется. Слово в фигурных скобках красится: <code>ОТ {490 ₽}</code> — главным цветом, <code>{PNGTuber|mint}</code> — мятным.</p>
+          <div id="scenes"></div>
+          <div class="toolbar">
+            <select id="newSceneType"></select>
+            <button type="button" id="addScene">+ Добавить сцену</button>
+          </div>
+        </details>
+
+        <details open>
+          <summary>Картинки персонажа</summary>
+          <p class="hint">Загрузи PNG с прозрачным фоном или скрин на зелёном фоне — зелёный вырежется сам. Потом выбери картинку в нужной сцене.</p>
+          <div id="gallery" class="gallery"></div>
+          <label class="upload">
+            <input id="upload" type="file" accept="image/png,image/webp,image/jpeg" multiple />
+            <span>+ Загрузить картинки</span>
+          </label>
+        </details>
+
+        <details>
+          <summary>Цвета</summary>
+          <div id="colors" class="colors"></div>
+          <div class="toolbar"><button type="button" class="ghost" id="resetColors">Вернуть цвета по умолчанию</button></div>
+        </details>
+
+        <details>
+          <summary>Персонаж</summary>
+          <div class="fields two">
+            <label class="field"><span>Размер</span><input id="chScale" type="number" min="0.3" max="2" step="0.02" /></label>
+            <label class="field"><span>Свечение вокруг</span><select id="chGlow"></select></label>
+          </div>
+          <label class="check"><input id="chMirror" type="checkbox" /><span>Отзеркалить (чтобы смотрела на текст)</span></label>
+          <label class="check"><input id="chRays" type="checkbox" /><span>Вращающиеся лучи за персонажем</span></label>
+        </details>
+
+        <details>
+          <summary>Ленты и декор</summary>
+          <label class="check"><input id="rbFrontOn" type="checkbox" /><span>Лента поверх карточки</span></label>
+          <label class="field"><span>Слова ленты (через запятую)</span><input id="rbFrontWords" type="text" /></label>
+          <label class="check"><input id="rbBackOn" type="checkbox" /><span>Лента за персонажем</span></label>
+          <label class="field"><span>Слова ленты (через запятую)</span><input id="rbBackWords" type="text" /></label>
+          <label class="check"><input id="decObjects" type="checkbox" /><span>Звезда, сердце, кристалл</span></label>
+          <label class="check"><input id="decProgress" type="checkbox" /><span>Полоски прогресса сцен</span></label>
+        </details>
+
+        <details>
+          <summary>Проект</summary>
+          <p class="hint">Сохрани проект в файл, чтобы открыть его на другом компьютере или сделать копию для другого стримера. Файл включает все загруженные картинки.</p>
+          <div class="toolbar">
+            <button type="button" class="secondary" id="saveProject">Сохранить проект</button>
+            <label class="button-like secondary"><input id="loadProject" type="file" accept=".json,application/json" hidden />Открыть проект</label>
+            <button type="button" class="ghost" id="resetAll">Начать заново</button>
+          </div>
+        </details>
+      </aside>
+
+      <section class="preview-col">
+        <section class="panel">
+          <div class="panel-title">
+            <h2>Превью</h2>
+            <div class="small-actions">
+              <button class="ghost" data-bg="stream-bg" type="button">На стриме</button>
+              <button class="ghost" data-bg="checker" type="button">Шахматка</button>
+              <button class="ghost" data-bg="black-bg" type="button">Чёрный</button>
+            </div>
+          </div>
+          <div class="preview-shell stream-bg" id="previewShell">
+            <iframe id="preview" title="Превью баннера"></iframe>
+          </div>
+          <div class="timeline">
+            <button type="button" class="ghost" id="playPause">❚❚</button>
+            <input type="range" id="scrub" min="0" max="16" step="0.01" value="0" />
+            <span id="timeLabel">0.0 с</span>
+          </div>
+          <div class="scene-chips" id="sceneChips"></div>
+          <pre class="log" id="messages"></pre>
+        </section>
+
+        <section class="panel export-panel">
+          <div class="panel-title"><h2>Скачать</h2></div>
+          <div class="fields three">
+            <label class="field"><span>FPS</span><select id="fps"><option>30</option><option>60</option><option>24</option></select></label>
+            <label class="field"><span>Масштаб</span><select id="scale"><option value="1">1× (как есть)</option><option value="0.5">0.5× (быстро, для проверки)</option><option value="2">2× (чётче, дольше)</option></select></label>
+            <label class="field check-inline"><input id="trim" type="checkbox" checked /><span>Обрезать пустые края</span></label>
+          </div>
+          <div class="toolbar">
+            <button type="button" id="renderWebm">Скачать WebM</button>
+            <button type="button" class="secondary" id="downloadSvg">Скачать SVG</button>
+          </div>
+          <progress id="progress" max="1" value="0" class="hidden"></progress>
+          <pre class="log" id="exportLog">WebM рендерится прямо в браузере покадрово, с прозрачным фоном. 16 секунд — примерно 2–4 минуты. Вкладку не закрывай.</pre>
+          <div class="video-shell checker hidden" id="videoShell">
+            <video id="video" controls loop muted playsinline></video>
+          </div>
+          <div class="toolbar hidden" id="videoActions">
+            <a class="download-link" id="videoLink" href="#" download="banner.webm">Сохранить WebM ещё раз</a>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

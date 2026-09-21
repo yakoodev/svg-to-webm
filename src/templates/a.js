@@ -234,7 +234,7 @@
       discount: '−10%',
       palette: { ...DEFAULT_PALETTE },
       font: { file: 'Unbounded.ttf', weight: 900 },
-      character: { scale: 0.68, mirror: true, offset_x: 0, offset_y: 0 },
+      character: { scale: 0.68, mirror: true, offset_x: 0, offset_y: 0, outline: false, flash: false },
       plate: { show: true, text: '{site}' },
       logo: { show: true, file: 'logo.svg' },
       scenes: [
@@ -577,7 +577,9 @@
     else { fk = [0]; fv = ['1']; }
     for (const t0 of SWAPS) { fk.push(t0 - 0.001, t0 + 0.04, t0 + 0.16); fv.push('1', '1.45', '1'); }
     fk.push(D); fv.push('1');
-    const flash = AN('slope', fk, fv);
+    const chOpt = cfg.character || {};
+    const flash = chOpt.flash ? AN('slope', fk, fv) : '';          // вспышка яркости на смене эмоции (по умолчанию выкл.)
+    const outlineNode = chOpt.outline ? '<feMergeNode in="w"/>' : '';   // белая обводка (по умолчанию выкл.)
     A(`<filter id="stk" x="-15%" y="-15%" width="130%" height="130%" color-interpolation-filters="sRGB">
     <feComponentTransfer in="SourceGraphic" result="br"><feFuncR type="linear" slope="1">${flash}</feFuncR><feFuncG type="linear" slope="1">${flash}</feFuncG><feFuncB type="linear" slope="1">${flash}</feFuncB></feComponentTransfer>
     <feGaussianBlur in="SourceAlpha" stdDeviation="2.2" result="sab"/><feComponentTransfer in="sab" result="sa"><feFuncA type="linear" slope="5" intercept="-1.6"/></feComponentTransfer>
@@ -586,7 +588,7 @@
     <feFlood flood-color="${white}"/><feComposite in2="d1" operator="in" result="w"/>
     <feFlood flood-color="${INK}"/><feComposite in2="d2" operator="in" result="k"/>
     <feOffset in="d2" dx="10" dy="12" result="s0"/><feFlood flood-color="${OR}"/><feComposite in2="s0" operator="in" result="sh"/>
-    <feMerge><feMergeNode in="sh"/><feMergeNode in="k"/><feMergeNode in="w"/><feMergeNode in="br"/></feMerge>
+    <feMerge><feMergeNode in="sh"/><feMergeNode in="k"/>${outlineNode}<feMergeNode in="br"/></feMerge>
   </filter>
   <filter id="sil" x="-15%" y="-15%" width="130%" height="130%">
     <feGaussianBlur in="SourceAlpha" stdDeviation="2.2" result="sab"/><feComponentTransfer in="sab" result="sa"><feFuncA type="linear" slope="5" intercept="-1.6"/></feComponentTransfer>
@@ -1040,6 +1042,8 @@
       { title: 'Персонаж', fields: [
         { path: 'character.scale', label: 'Размер', kind: 'number', min: 0.2, max: 1.5, step: 0.01, half: true, hint: '0.68 — как в оригинале' },
         { path: 'character.mirror', label: 'Отзеркалить (чтобы смотрела на текст)', kind: 'check', half: true },
+        { path: 'character.outline', label: 'Белая обводка вокруг персонажа', kind: 'check', half: true },
+        { path: 'character.flash', label: 'Вспышка яркости при смене эмоции', kind: 'check', half: true },
         { path: 'character.offset_x', label: 'Сдвиг вправо, px', kind: 'number', min: -600, max: 600, step: 1, half: true },
         { path: 'character.offset_y', label: 'Сдвиг вниз, px', kind: 'number', min: -400, max: 400, step: 1, half: true }
       ] },

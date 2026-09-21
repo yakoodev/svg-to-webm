@@ -29,7 +29,7 @@
       promo_code: 'КУМЕЛИ10',
       site: 'VTUBIKA.STORE',
       colors: { ...DEFAULT_COLORS },
-      character: { scale: 0.86, mirror: true, center_x: 1590, top: 408, glow: 'lavender', rays: true, rays_color: 'lavender' },
+      character: { scale: 0.86, mirror: true, center_x: 1590, top: 408, glow: 'lavender', rays: true, rays_color: 'lavender', outline: false },
       image_tweaks: {},
       ribbons: {
         front: { enabled: true, words: ['VTUBIKA.STORE', 'ГОТОВЫЕ VTUBER-МОДЕЛИ', 'LIVE2D', 'PNGTUBER', '3D'], color: 'accent', text_color: '#1C1F26' },
@@ -231,7 +231,7 @@
     <feFlood flood-color="#fff"/><feComposite in2="d" operator="in" result="outline"/>
     <feGaussianBlur in="d" stdDeviation="16" result="gb"/><feFlood flood-color="${glow}" flood-opacity=".85"/><feComposite in2="gb" operator="in" result="glow"/>
     <feOffset in="d" dx="10" dy="16" result="s0"/><feGaussianBlur in="s0" stdDeviation="10" result="s1"/><feFlood flood-color="#000" flood-opacity=".4"/><feComposite in2="s1" operator="in" result="shadow"/>
-    <feMerge><feMergeNode in="glow"/><feMergeNode in="shadow"/><feMergeNode in="outline"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <feMerge><feMergeNode in="glow"/><feMergeNode in="shadow"/>${CH.outline ? '<feMergeNode in="outline"/>' : ''}<feMergeNode in="SourceGraphic"/></feMerge>
   </filter>
   ${ext_filter('extW', c('extrude_white'))}
   ${ext_filter('extO', c('extrude_accent'))}
@@ -563,7 +563,8 @@
         { path: 'character.scale', label: 'Размер', kind: 'number', min: 0.3, max: 2, step: 0.02, half: true },
         { path: 'character.glow', label: 'Свечение вокруг', kind: 'color-name', half: true },
         { path: 'character.mirror', label: 'Отзеркалить (чтобы смотрела на текст)', kind: 'check' },
-        { path: 'character.rays', label: 'Вращающиеся лучи за персонажем', kind: 'check' }
+        { path: 'character.rays', label: 'Вращающиеся лучи за персонажем', kind: 'check' },
+        { path: 'character.outline', label: 'Белая обводка вокруг персонажа', kind: 'check' }
       ] },
       { title: 'Ленты и декор', fields: [
         { path: 'ribbons.front.enabled', label: 'Лента поверх карточки', kind: 'check' },
